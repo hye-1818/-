@@ -1,0 +1,643 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Collatz Sky Jump</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;500;700;900&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --font-main: 'Outfit', sans-serif;
+            --font-mono: 'JetBrains Mono', monospace;
+            --color-ground: #4caf50;
+            --color-sky-light: #87CEEB;
+            --color-sky-dark: #1E90FF;
+            --color-space: #0B0B3B;
+            --accent: #FFD700;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            user-select: none;
+            /* Prevent selection during rapid clicking */
+        }
+
+        body {
+            font-family: var(--font-main);
+            overflow: hidden;
+            height: 100vh;
+            background: #000;
+            color: white;
+        }
+
+        .game-wrapper {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+        }
+
+        /* --- Background Layers --- */
+        .sky-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 400%;
+            /* 4x screen height for different zones */
+            background: linear-gradient(to top,
+                    #87CEEB 0%,
+                    /* Ground/Low Sky */
+                    #1E90FF 25%,
+                    /* High Sky */
+                    #4B0082 50%,
+                    /* Stratosphere */
+                    #000000 100%
+                    /* Deep Space */
+                );
+            transition: transform 1s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+            will-change: transform;
+            z-index: 0;
+        }
+
+        .particles {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-image:
+                radial-gradient(white 1px, transparent 1px),
+                radial-gradient(white 2px, transparent 2px);
+            background-size: 50px 50px, 100px 100px;
+            background-position: 0 0, 25px 25px;
+            opacity: 0.5;
+        }
+
+        /* --- UI Layer --- */
+        .ui-layer {
+            position: relative;
+            z-index: 10;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 2rem;
+            pointer-events: none;
+            /* Let clicks pass through to buttons */
+        }
+
+        header {
+            text-align: center;
+            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
+        }
+
+        .altitude-meter {
+            margin-bottom: 1rem;
+        }
+
+        .altitude-meter .label {
+            display: block;
+            font-size: 0.8rem;
+            opacity: 0.8;
+            letter-spacing: 2px;
+        }
+
+        .altitude-meter .value {
+            font-family: var(--font-mono);
+            font-size: 4rem;
+            font-weight: 900;
+        }
+
+        .altitude-meter .unit {
+            font-size: 1.5rem;
+            opacity: 0.8;
+        }
+
+        .stats-row {
+            display: flex;
+            justify-content: center;
+            gap: 2rem;
+        }
+
+        .stat {
+            background: rgba(0, 0, 0, 0.3);
+            padding: 0.5rem 1rem;
+            border-radius: 20px;
+            backdrop-filter: blur(5px);
+        }
+
+        .stat .label {
+            font-size: 0.7rem;
+            margin-right: 0.5rem;
+            opacity: 0.7;
+        }
+
+        .stat .value {
+            font-family: var(--font-mono);
+            font-weight: 700;
+        }
+
+        /* --- Character --- */
+        .character-container {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 100px;
+            height: 100px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 5;
+        }
+
+        .character {
+            font-size: 4rem;
+            position: relative;
+            transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+
+        .character-flame {
+            position: absolute;
+            bottom: -20px;
+            left: 50%;
+            transform: translateX(-50%) rotate(180deg);
+            font-size: 2rem;
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+
+        .character.flying .character-flame {
+            opacity: 1;
+        }
+
+        .character.falling {
+            transform: rotate(180deg);
+        }
+
+        .target-line {
+            position: absolute;
+            bottom: -50px;
+            width: 200px;
+            text-align: center;
+            border-top: 2px dashed rgba(255, 255, 255, 0.5);
+            padding-top: 5px;
+            font-size: 0.8rem;
+            opacity: 0;
+            /* Only visible when close to ground */
+            transition: opacity 0.5s;
+        }
+
+        /* --- Controls --- */
+        .controls-container {
+            pointer-events: auto;
+            width: 100%;
+            max-width: 500px;
+            margin: 0 auto;
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(20px);
+            padding: 1.5rem;
+            border-radius: 24px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .formula-preview {
+            text-align: center;
+            font-family: var(--font-mono);
+            margin-bottom: 1rem;
+            height: 1.5rem;
+            color: var(--accent);
+        }
+
+        .buttons {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+        }
+
+        .btn {
+            border: none;
+            border-radius: 16px;
+            padding: 1rem;
+            font-family: var(--font-main);
+            cursor: pointer;
+            transition: transform 0.1s, filter 0.1s;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            color: white;
+        }
+
+        .btn:active {
+            transform: scale(0.95);
+        }
+
+        .btn-even {
+            background: linear-gradient(135deg, #43cea2, #185a9d);
+        }
+
+        .btn-odd {
+            background: linear-gradient(135deg, #ff512f, #dd2476);
+        }
+
+        .btn .icon {
+            font-size: 1.5rem;
+            margin-bottom: 0.2rem;
+        }
+
+        .btn .text {
+            font-size: 1.2rem;
+            font-weight: 700;
+        }
+
+        .btn .sub {
+            font-size: 0.8rem;
+            opacity: 0.8;
+        }
+
+        /* --- Overlay --- */
+        .game-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            backdrop-filter: blur(10px);
+            z-index: 100;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            transition: opacity 0.3s;
+        }
+
+        .game-overlay.hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .title {
+            font-size: 3rem;
+            line-height: 1;
+            margin-bottom: 1rem;
+        }
+
+        .title .highlight {
+            color: var(--accent);
+            font-size: 4rem;
+        }
+
+        .desc {
+            margin-bottom: 2rem;
+            opacity: 0.8;
+            line-height: 1.6;
+        }
+
+        .high-score-box {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 0.5rem 1rem;
+            border-radius: 50px;
+            display: inline-block;
+            margin-bottom: 2rem;
+            font-family: var(--font-mono);
+        }
+
+        .btn-start {
+            background: var(--accent);
+            color: black;
+            border: none;
+            padding: 1rem 3rem;
+            font-size: 1.5rem;
+            font-weight: 900;
+            border-radius: 50px;
+            cursor: pointer;
+            box-shadow: 0 0 20px rgba(255, 215, 0, 0.5);
+            transition: transform 0.2s;
+        }
+
+        .btn-start:hover {
+            transform: scale(1.1);
+        }
+
+        /* Shake Animation for Error */
+        @keyframes shake {
+
+            0%,
+            100% {
+                transform: translateX(0);
+            }
+
+            25% {
+                transform: translateX(-10px);
+            }
+
+            75% {
+                transform: translateX(10px);
+            }
+        }
+
+        .shake {
+            animation: shake 0.3s ease-in-out;
+        }
+    </style>
+</head>
+<body>
+    <div class="game-wrapper">
+        <!-- Dynamic Background Layers -->
+        <div class="sky-container" id="sky-container">
+            <div class="layer layer-space"></div>
+            <div class="layer layer-stratosphere"></div>
+            <div class="layer layer-sky"></div>
+            <div class="layer layer-ground"></div>
+            
+            <!-- Clouds/Stars for parallax effect -->
+            <div class="particles" id="particles"></div>
+        </div>
+
+        <main class="ui-layer">
+            <header>
+                <div class="altitude-meter">
+                    <span class="label">ALTITUDE</span>
+                    <span class="value" id="current-number">START</span>
+                    <span class="unit">m</span>
+                </div>
+                <div class="stats-row">
+                    <div class="stat">
+                        <span class="label">TIME</span>
+                        <span class="value" id="timer">0.00s</span>
+                    </div>
+                    <div class="stat">
+                        <span class="label">STEPS</span>
+                        <span class="value" id="score">0</span>
+                    </div>
+                </div>
+            </header>
+
+            <div class="character-container">
+                <div class="character" id="character">
+                    <div class="character-body">🚀</div>
+                    <div class="character-flame" id="flame">🔥</div>
+                </div>
+                <div class="target-line">Target: 1m</div>
+            </div>
+
+            <div class="controls-container">
+                <div class="formula-preview" id="formula-display">Ready?</div>
+                <div class="buttons">
+                    <button class="btn btn-even" id="btn-even">
+                        <span class="icon">⬇️</span>
+                        <span class="text">÷2</span>
+                        <span class="sub">Even</span>
+                    </button>
+                    <button class="btn btn-odd" id="btn-odd">
+                        <span class="icon">⬆️</span>
+                        <span class="text">×3+1</span>
+                        <span class="sub">Odd</span>
+                    </button>
+                </div>
+            </div>
+        </main>
+
+        <div class="game-overlay" id="game-overlay">
+            <div class="overlay-content">
+                <h1 class="title">COLLATZ<br><span class="highlight">SKY JUMP</span></h1>
+                <p class="desc">숫자가 높을수록 하늘 높이 올라갑니다.<br>안전하게 지상(1m)으로 착륙하세요!</p>
+                <div class="high-score-box">
+                    BEST: <span id="high-score">0.00s</span>
+                </div>
+                <button class="btn-start" id="btn-start">LAUNCH 🚀</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        class CollatzSkyJump {
+            constructor() {
+                this.currentNumber = 0;
+                this.score = 0;
+                this.startTime = 0;
+                this.timerInterval = null;
+                this.isPlaying = false;
+                this.highScore = localStorage.getItem('collatzSkyHighScore') || 0;
+
+                // DOM Elements
+                this.elCurrentNumber = document.getElementById('current-number');
+                this.elScore = document.getElementById('score');
+                this.elTimer = document.getElementById('timer');
+                this.elHighScore = document.getElementById('high-score');
+                this.elFormula = document.getElementById('formula-display');
+                this.elSkyContainer = document.getElementById('sky-container');
+                this.elCharacter = document.getElementById('character');
+                this.elTargetLine = document.querySelector('.target-line');
+
+                this.elOverlay = document.getElementById('game-overlay');
+                this.btnStart = document.getElementById('btn-start');
+                this.btnEven = document.getElementById('btn-even');
+                this.btnOdd = document.getElementById('btn-odd');
+
+                this.init();
+            }
+
+            init() {
+                this.elHighScore.textContent = this.formatTime(this.highScore);
+
+                // Event Listeners
+                this.btnStart.addEventListener('click', () => this.startGame());
+                this.btnEven.addEventListener('click', () => this.handleInput('even'));
+                this.btnOdd.addEventListener('click', () => this.handleInput('odd'));
+
+                // Keyboard Support
+                document.addEventListener('keydown', (e) => {
+                    if (!this.isPlaying) {
+                        if (e.code === 'Space' || e.code === 'Enter') this.startGame();
+                        return;
+                    }
+                    if (e.code === 'ArrowLeft' || e.key === '2') this.handleInput('even');
+                    if (e.code === 'ArrowRight' || e.key === '3') this.handleInput('odd');
+                });
+            }
+
+            startGame() {
+                this.isPlaying = true;
+                this.score = 0;
+                this.currentNumber = this.generateRandomNumber();
+                this.startTime = Date.now();
+
+                this.updateDisplay(true); // true = initial render
+                this.elOverlay.classList.add('hidden');
+                this.elFormula.style.opacity = '0';
+
+                if (this.timerInterval) clearInterval(this.timerInterval);
+                this.timerInterval = setInterval(() => this.updateTimer(), 50);
+            }
+
+            generateRandomNumber() {
+                // Start with a reasonable altitude (20-100)
+                return Math.floor(Math.random() * 80) + 20;
+            }
+
+            handleInput(type) {
+                if (!this.isPlaying) return;
+
+                const isEven = this.currentNumber % 2 === 0;
+                const isCorrect = (isEven && type === 'even') || (!isEven && type === 'odd');
+
+                if (isCorrect) {
+                    this.processCorrectMove(isEven);
+                } else {
+                    this.processWrongMove();
+                }
+            }
+
+            processCorrectMove(isEven) {
+                // Calculate next
+                if (isEven) {
+                    this.currentNumber = this.currentNumber / 2;
+                    this.elFormula.textContent = 'n / 2 (Falling)';
+                    this.animateCharacter('falling');
+                } else {
+                    this.currentNumber = (this.currentNumber * 3) + 1;
+                    this.elFormula.textContent = '3n + 1 (Rising)';
+                    this.animateCharacter('flying');
+                }
+
+                this.score++;
+                this.elFormula.style.opacity = '1';
+                this.updateDisplay();
+
+                if (this.currentNumber === 1) {
+                    this.endGame();
+                }
+            }
+
+            processWrongMove() {
+                // Penalty: Add 2 seconds
+                this.startTime -= 2000;
+
+                // Visual shake
+                document.body.classList.add('shake');
+                setTimeout(() => document.body.classList.remove('shake'), 300);
+            }
+
+            animateCharacter(state) {
+                this.elCharacter.classList.remove('flying', 'falling');
+                void this.elCharacter.offsetWidth; // trigger reflow
+                this.elCharacter.classList.add(state);
+            }
+
+            updateTimer() {
+                const elapsed = (Date.now() - this.startTime) / 1000;
+                this.elTimer.textContent = elapsed.toFixed(2) + 's';
+            }
+
+            updateDisplay(isInitial = false) {
+                this.elCurrentNumber.textContent = this.currentNumber;
+                this.elScore.textContent = this.score;
+
+                // Visual Altitude Calculation
+                // Logarithmic scale: 1 -> 0%, 1000 -> ~100% (of the visible sky range)
+                // We have 400% height container.
+                // Let's map log10(n) to a percentage.
+                // log10(1) = 0
+                // log10(1000) = 3
+                // Let's say max expected height is around 5000 (log ~3.7)
+
+                const logVal = Math.log10(this.currentNumber);
+                const maxLog = 3.5; // Represents roughly 3000-4000
+
+                // Calculate percentage of the TOTAL container height (400vh) to show
+                // We want to translate the container DOWN as we go UP.
+                // At 1 (Ground), translate should be 0 (showing bottom).
+                // Actually, since it's `top: 0`, we want to translate Y to show the bottom part initially?
+                // Let's assume bottom of container is ground.
+                // So translateY should be:
+                // Ground (1): -75% (showing the bottom 25% which is ground layer)
+                // Space (High): 0% (showing top)
+
+                // Let's simplify:
+                // The container is 400% height.
+                // We want to view the bottom viewport at n=1.
+                // Viewport height = 100vh.
+                // Container height = 400vh.
+                // To see bottom: translateY(-300vh) or -75%?
+                // Let's try percentage. -75% moves it up so bottom aligns with top? No.
+                // translateY(0) shows top.
+                // translateY(-75%) shows bottom quarter? 
+                // Let's do calculation:
+                // progress 0 (ground) -> -75%
+                // progress 1 (space) -> 0%
+
+                let progress = logVal / maxLog;
+                if (progress > 1) progress = 1;
+                if (progress < 0) progress = 0;
+
+                // Interpolate between -75% (Ground) and 0% (Space)
+                // Actually, let's tweak the gradient. 
+                // If 0% is top (space) and 100% is bottom (ground).
+                // We want to move the background so the correct part is in view.
+
+                // Let's use pixel values relative to window height for smoother control if needed, 
+                // but % is fine.
+
+                const startY = -75; // Ground level
+                const endY = 0;     // Space level
+                const currentY = startY + (progress * (endY - startY));
+
+                this.elSkyContainer.style.transform = `translateY(${currentY}%)`;
+
+                // Show target line if close to ground
+                if (this.currentNumber <= 5) {
+                    this.elTargetLine.style.opacity = '1';
+                } else {
+                    this.elTargetLine.style.opacity = '0';
+                }
+            }
+
+            endGame() {
+                this.isPlaying = false;
+                clearInterval(this.timerInterval);
+
+                const finalTime = (Date.now() - this.startTime) / 1000;
+
+                // Update High Score
+                if (this.highScore == 0 || finalTime < this.highScore) {
+                    this.highScore = finalTime;
+                    localStorage.setItem('collatzSkyHighScore', this.highScore);
+                    this.elHighScore.textContent = this.formatTime(this.highScore);
+                }
+
+                // Show Overlay
+                const overlayTitle = this.elOverlay.querySelector('.title');
+                const overlayDesc = this.elOverlay.querySelector('.desc');
+                const btn = this.elOverlay.querySelector('.btn-start');
+
+                overlayTitle.innerHTML = "MISSION<br><span class='highlight'>COMPLETE</span>";
+                overlayDesc.innerHTML = `
+                    Flight Time: ${finalTime.toFixed(2)}s<br>
+                    Total Steps: ${this.score}<br>
+                    Safe Landing Confirmed! 🏁
+                `;
+                btn.textContent = "REPLAY 🔄";
+
+                this.elOverlay.classList.remove('hidden');
+                this.elCharacter.classList.remove('flying', 'falling');
+            }
+
+            formatTime(seconds) {
+                return parseFloat(seconds).toFixed(2) + 's';
+            }
+        }
+
+        // Start the game instance
+        window.addEventListener('DOMContentLoaded', () => {
+            new CollatzSkyJump();
+        });
+    </script>
+</body>
+</html>
